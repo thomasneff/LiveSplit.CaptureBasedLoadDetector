@@ -1,4 +1,4 @@
-﻿using CrashNSaneLoadDetector;
+﻿using CaptureBasedLoadDetector;
 using LiveSplit.Model;
 using System;
 using System.Collections.Generic;
@@ -16,13 +16,15 @@ namespace LiveSplit.UI.Components
 {
 	
 
-	public partial class CrashNSTLoadRemovalSettings : UserControl
+	public partial class CaptureBasedLoadDetectorSettings : UserControl
 	{
 		#region Public Fields
 
 		public bool AutoSplitterEnabled = false;
 
 		public bool AutoSplitterDisableOnSkipUntilSplit = false;
+
+		public DetectorParameters DetectorParams = new DetectorParameters();
 
 		//Number of frames to wait for a change from load -> running and vice versa.
 		public int AutoSplitterJitterToleranceFrames = 8;
@@ -95,7 +97,7 @@ namespace LiveSplit.UI.Components
 
 		#region Public Constructors
 
-		public CrashNSTLoadRemovalSettings(LiveSplitState state)
+		public CaptureBasedLoadDetectorSettings(LiveSplitState state)
 		{
 			InitializeComponent();
 
@@ -170,6 +172,26 @@ namespace LiveSplit.UI.Components
 			return b;
 		}
 
+		public bool CaptureAndDetectLoads()
+		{
+
+			if (DetectorParams == null)
+				return false;
+
+			if (DetectorParams.SVM == null)
+				return false;
+
+			//Capture image using the settings defined for the component
+			Bitmap capture = CaptureImage();
+
+			//Feed the image to the feature detection
+			var features = FeatureDetector.featuresFromBitmapDouble(capture, DetectorParams).ToArray();
+
+			var is_loading = FeatureDetector.computeSVMDetection(features, DetectorParams);
+
+			return is_loading;
+		}
+
 		public Bitmap CaptureImageFullPreview(ref ImageCaptureInfo imageCaptureInfo, bool useCrop = false)
 		{
 			Bitmap b = new Bitmap(1, 1);
@@ -238,6 +260,8 @@ namespace LiveSplit.UI.Components
 
 			return b;
 		}
+
+
 
 		public void ChangeAutoSplitSettingsToGameName(string gameName, string category)
 		{
@@ -429,12 +453,7 @@ namespace LiveSplit.UI.Components
 					version = new Version(1, 0, 0);
 				}
 
-				if (element["RequiredMatches"] != null)
-				{
-					FeatureDetector.numberOfBinsCorrect = Convert.ToInt32(element["RequiredMatches"].InnerText);
-					requiredMatchesUpDown.Value = FeatureDetector.numberOfBinsCorrect;
-				}
-
+				
 				if (element["SelectedCaptureTitle"] != null)
 				{
 					String selectedCaptureTitle = element["SelectedCaptureTitle"].InnerText;
@@ -685,16 +704,31 @@ namespace LiveSplit.UI.Components
 			copy.captureSizeX = captureSize.Width;
 			copy.captureSizeY = captureSize.Height;
 
-			//Show matching bins for preview
+			// Draw cropped feature capture preview
 			var capture = CaptureImage();
-			var features = FeatureDetector.featuresFromBitmap(capture);
-			int tempMatchingBins = 0;
-			var isLoading = FeatureDetector.compareFeatureVector(features.ToArray(), FeatureDetector.listOfFeatureVectorsEng, out tempMatchingBins, false);
 
-			lastFeatures = features;
-			lastDiagnosticCapture = capture;
-			lastMatchingBins = tempMatchingBins;
-			matchDisplayLabel.Text = tempMatchingBins.ToString();
+			featureCropPictureBox.Image = capture;
+
+			if (DetectorParams != null)
+			{
+				
+				var features = FeatureDetector.featuresFromBitmapDouble(capture, DetectorParams);
+
+				if (DetectorParams.SVM != null)
+				{
+					var log_likelihood = DetectorParams.SVM.LogLikelihood(features.ToArray());
+
+
+					//lastFeatures = features;
+					lastDiagnosticCapture = capture;
+					//lastMatchingBins = tempMatchingBins;
+					matchDisplayLabel.Text = (log_likelihood + -DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+					requiredMatchesLbl.Text = (DetectorParams.MinLogLikelihoodPositive + -DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+
+				}
+
+			}
+			
 		}
 
 		private void enableAutoSplitterChk_CheckedChanged(object sender, EventArgs e)
@@ -709,7 +743,7 @@ namespace LiveSplit.UI.Components
 			selectionTopLeft = new Point(0, 0);
 			selectionBottomRight = new Point(previewPictureBox.Width, previewPictureBox.Height);
 			selectionRectanglePreviewBox = new Rectangle(selectionTopLeft.X, selectionTopLeft.Y, selectionBottomRight.X - selectionTopLeft.X, selectionBottomRight.Y - selectionTopLeft.Y);
-			requiredMatchesUpDown.Value = FeatureDetector.numberOfBinsCorrect;
+			requiredMatchesLbl.Text = "0.0";
 
 			imageCaptureInfo.featureVectorResolutionX = featureVectorResolutionX;
 			imageCaptureInfo.featureVectorResolutionY = featureVectorResolutionY;
@@ -842,11 +876,6 @@ namespace LiveSplit.UI.Components
 			return sbOutput.ToString();
 		}
 
-		private void requiredMatchesUpDown_ValueChanged(object sender, EventArgs e)
-		{
-			FeatureDetector.numberOfBinsCorrect = (int)requiredMatchesUpDown.Value;
-		}
-
 		private void saveDiagnosticsButton_Click(object sender, EventArgs e)
 		{
 			FolderBrowserDialog fbd = new FolderBrowserDialog();
@@ -956,6 +985,47 @@ namespace LiveSplit.UI.Components
 		private void chkAutoSplitterDisableOnSkip_CheckedChanged(object sender, EventArgs e)
 		{
 			AutoSplitterDisableOnSkipUntilSplit = chkAutoSplitterDisableOnSkip.Checked;
+		}
+
+		private void numericUpDownResolutionWidth_ValueChanged(object sender, EventArgs e)
+		{
+			captureAspectRatioX = (float) numericUpDownResolutionWidth.Value;
+			imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
+		}
+
+		private void numericUpDownResolutionHeight_ValueChanged(object sender, EventArgs e)
+		{
+			captureAspectRatioY = (float)numericUpDownResolutionHeight.Value;
+			imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
+		}
+
+		private void numericUpDownCaptureSizeX_ValueChanged(object sender, EventArgs e)
+		{
+			captureSize.Width = (int)numericUpDownCaptureSizeX.Value;
+			imageCaptureInfo.captureSizeX = captureSize.Width;
+		}
+
+		private void numericUpDownCaptureSizeY_ValueChanged(object sender, EventArgs e)
+		{
+			captureSize.Height = (int)numericUpDownCaptureSizeY.Value;
+			imageCaptureInfo.captureSizeY = captureSize.Height;
+		}
+
+		private void numericUpDownCropOffsetX_ValueChanged(object sender, EventArgs e)
+		{
+			cropOffsetX = (float) numericUpDownCropOffsetX.Value;
+			imageCaptureInfo.cropOffsetX = cropOffsetX;
+		}
+
+		private void numericUpDownCropOffsetY_ValueChanged(object sender, EventArgs e)
+		{
+			cropOffsetY = (float)numericUpDownCropOffsetY.Value;
+			imageCaptureInfo.cropOffsetY = cropOffsetY;
+		}
+
+		private void btnTrainAuto_Click(object sender, EventArgs e)
+		{
+			DetectorParams = Training.OptimizeDetectorFromFolders();
 		}
 	}
 	public class AutoSplitData

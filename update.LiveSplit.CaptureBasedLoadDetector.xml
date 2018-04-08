@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<updates>
+	<update version="1.0">
+		<files>
+			<file path="Components/LiveSplit.CaptureBasedLoadDetector.dll" status="added" />
+			<file path="Components/Accord.dll" status="added" />
+			<file path="Components/Accord.MachineLearning.dll" status="added" />
+			<file path="Components/Accord.Math.Core.dll" status="added" />
+			<file path="Components/Accord.Math.dll" status="added" />
+			<file path="Components/Accord.Statistics.dll" status="added" />
+		</files>
+		<changelog>
+			<change>
+				Initial commit of generic CaptureBasedLoadDetector.
+			</change>
+		</changelog>
+	</update>
+</updates>

@@ -4,11 +4,11 @@ using System.Runtime.InteropServices;
 // Allgemeine Informationen über eine Assembly werden über die folgenden 
 // Attribute gesteuert. Ändern Sie diese Attributwerte, um die Informationen zu ändern,
 // die mit einer Assembly verknüpft sind.
-[assembly: AssemblyTitle("LiveSplit.CrashNSTLoadRemoval")]
-[assembly: AssemblyDescription("Load Detection for Crash N Sane Trilogy")]
+[assembly: AssemblyTitle("LiveSplit.CaptureBasedLoadDetector")]
+[assembly: AssemblyDescription("Load Detection for games.")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("LiveSplit.CrashNSTLoadRemoval")]
+[assembly: AssemblyProduct("LiveSplit.CaptureBasedLoadDetector")]
 [assembly: AssemblyCopyright("Copyright © Thomas Neff 2017")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

@@ -1,27 +1,34 @@
-# LiveSplit.CrashNSTLoadRemoval
-LiveSplit component to automatically detect and remove loads from the Crash N Sane Trilogy.
+# LiveSplit.CaptureBasedLoadDetector
+LiveSplit component to automatically detect and remove loads for games using image capture.
 
 This is adapted from my standalone detection tool https://github.com/thomasneff/CrashNSaneTrilogyLoadDetector
 and from https://github.com/Maschell/LiveSplit.PokemonRedBlue for the base component code.
+
+# Credits / Acknowledgment
+This Component uses the Accord.NET ( http://accord-framework.net/index.html ) machine learning framework for OneClass SVM detection (source at https://github.com/accord-net/framework ).
+This Component uses Newtonsoft JSON.NET ( http://www.newtonsoft.com/json ) for serializing options (source at https://github.com/JamesNK/Newtonsoft.Json ). 
 
 # Special Thanks
 Special thanks go to McCrodi from the Crash Speedrunning Discord, who helped me by providing 1080p/720p captured data and general feedback regarding the functionality.
 
 # How does it work?
-The method works by taking a small "screenshot" (currently 300x100) from your selected capture at the center, where "LOADING" is displayed when playing the Crash NST. It then cuts this 300x100 image into patches (currently of size 50x50). From these patches, a color histogram is computed (currently using 16 histogram bins -> [0-15, 16-31, 32-47, ..., 240-255]) of the red, green and blue color channels. These histograms are put into a large vector, which describes our image (feature vector).
+The method works by taking a small "screenshot" (currently 300x100) from your selected capture at the center, where "LOADING" is displayed when playing. It then cuts this 300x100 image into patches. From these patches, a color histogram is computed of the red, green and blue color channels. These histograms are put into a large vector, which describes our image (feature vector).
 
-To detect if a screen is "LOADING" or not, we compute this feature vector every ~4-16ms (depending on capture modes, fast enough for real-time load detection) and compare it to a precomputed list of feature vectors. This list has currently been precomputed for the english version of the NST using different VODs and Remote Play footage. The precomputed vectors are simply snapshots during the "LOADING" screen (also during animation, when Aku Aku flies over "LOADING", different quality settings...).
-We detect a "LOADING" screen if our current feature vector has similar enough histogram bins to any of the precomputed vectors. Comparing against multiple vectors allows for more robust detection in settings where "LOADING" is partially occluded or different video quality settings.
+We use these features to train a OneClass SVM machine learning model, powered by the Accord.NET ( http://accord-framework.net/index.html ) machine learning framework (source at https://github.com/accord-net/framework ).
+For training, it is necessary to capture images of regular gameplay as well as load screens. For this, the tool provides a 'capture' tab, that allows you to specify the location of capture. When enabled, images of size 300x100 are captured every frame.
 
-I decided to go for this simplistic approach (rather than e.g. computing SIFT features, histogram of gradients, deep learning detection...) as it doesn't have any external dependencies (which e.g. deep learning would have) and allows for real-time detection.
+Then it is necessary to create 2 folders, one containing only images captured during gameplay (non-loading) and one containing only loading images. The loading images are more important, so make sure you capture a sufficient amount when re-training the SVM!
 
-# Missing Features
-If you do full trilogy run, you'll still need to time your title screen loads. Sorry, that's just because the title screen loads are different than the ingame loads. I might tinker around with also detecting those, but since there are so few of them, I'm not sure if that would be worth it.
+To detect if a screen is "LOADING" or not, we compute our feature vector every ~4-16ms (depending on capture modes, fast enough for real-time load detection) and classify it using the SVM.
+
+After training, all settings as well as the trained SVM model are stored in a separate folder called "CaptureBasedLoadDetector", and can be shared for different games/communities.
+
+
 
 # Settings
-The LiveSplit.CrashNSTLoadRemoval.dll goes into your "Components" folder in your LiveSplit folder.
+The LiveSplit.CaptureBasedLoadDetector.dll goes into your "Components" folder in your LiveSplit folder.
 
-Add this to LiveSplit by going into your Layout Editor -> Add -> Control -> CrashNSTLoadRemoval.
+Add this to LiveSplit by going into your Layout Editor -> Add -> Control -> CaptureBasedLoadDetector.
 
 You can specify to capture either the full primary Display (default) or an open window. This window has to be open (not minimized) but does not have to be in the foreground.
 

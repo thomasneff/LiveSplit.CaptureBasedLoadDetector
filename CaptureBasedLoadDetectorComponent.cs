@@ -2,16 +2,16 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using CrashNSaneLoadDetector;
+using CaptureBasedLoadDetector;
 //using System.Threading;
 
 namespace LiveSplit.UI.Components
 {
-    class CrashNSTLoadRemovalComponent : IComponent
+    class CaptureBasedLoadDetectorComponent : IComponent
     {
         public string ComponentName
         {
-            get { return "Crash NST Load Removal"; }
+            get { return "Capture-Based Load Detector"; }
         }
         public GraphicsCache Cache { get; set; }
 
@@ -25,7 +25,7 @@ namespace LiveSplit.UI.Components
 
         public IDictionary<string, Action> ContextMenuControls { get; protected set; }
 		
-		public CrashNSTLoadRemovalSettings settings { get; set; }
+		public CaptureBasedLoadDetectorSettings settings { get; set; }
 
 		private bool isLoading = false;
 		private int matchingBins = 0;
@@ -60,7 +60,7 @@ namespace LiveSplit.UI.Components
 		//private HighResolutionTimer.HighResolutionTimer highResTimer;
 		private List<int> NumberOfLoadsPerSplit;
 
-		public CrashNSTLoadRemovalComponent(LiveSplitState state)
+		public CaptureBasedLoadDetectorComponent(LiveSplitState state)
 		{
 			
 			GameName = state.Run.GameName;
@@ -77,7 +77,7 @@ namespace LiveSplit.UI.Components
 			NumberOfLoadsPerSplit = new List<int>();
 			InitNumberOfLoadsFromState();
 			
-			settings = new CrashNSTLoadRemovalSettings(state);
+			settings = new CaptureBasedLoadDetectorSettings(state);
 			lastTime = DateTime.Now;
 			segmentTimeStart = DateTime.Now;
 			timer = new TimerModel { CurrentState = state };
@@ -144,11 +144,9 @@ namespace LiveSplit.UI.Components
 				Bitmap capture = settings.CaptureImage();
 
 				//Feed the image to the feature detection
-				var features = FeatureDetector.featuresFromBitmap(capture);
-				int tempMatchingBins = 0;
+				
 				bool wasLoading = isLoading;
-				isLoading = FeatureDetector.compareFeatureVector(features.ToArray(), FeatureDetector.listOfFeatureVectorsEng, out tempMatchingBins, false);
-				matchingBins = tempMatchingBins;
+				isLoading = settings.CaptureAndDetectLoads();
 
 				timer.CurrentState.IsGameTimePaused = isLoading;
 

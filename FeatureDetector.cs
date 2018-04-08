@@ -6,7 +6,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CrashNSaneLoadDetector
+
+namespace CaptureBasedLoadDetector
 {
 	//This class contains settings, features and methods for computing features from a given Bitmap
 	class FeatureDetector
@@ -15,13 +16,22 @@ namespace CrashNSaneLoadDetector
 		private static float varianceOfBinsAllowed = 1.0f;
 		private static float varianceOfBinsAllowedMult = 1.45f;
 		private static float additiveVariance = 2.0f;
-		private static int patchSizeX = 50;
-		private static int patchSizeY = 50;
+		private static int patchSizeX = 300;
+		private static int patchSizeY = 100;
 		public static int numberOfBinsCorrect = 300;
-		private static int numberOfBins = 16;
+		private static int numberOfBins = 4;
+
+		public static bool computeSVMDetection(double[] features, DetectorParameters detector_params)
+		{
+			var log_likelihood = detector_params.SVM.LogLikelihood(features);
+			var decision = log_likelihood > detector_params.LogLikelihoodThreshold;
+
+			return decision;
+		}
 
 		public static bool compareFeatureVector(int[] newVector, int [,] comparison_vectors, out int matchingBins, bool debugOutput = true)
 		{
+			
 			//int[,] comparison_vectors = listOfFeatureVectorsEng;
 			int size = newVector.Length;
 
@@ -148,10 +158,78 @@ namespace CrashNSaneLoadDetector
 			return features;
 		}
 
+		public static List<double> featuresFromBitmapDouble(Bitmap capture, DetectorParameters detector_params)
+		{
+
+			List<int> features = new List<int>();
+			List<double> finalFeatures = new List<double>();
+
+			BitmapData bData = capture.LockBits(new Rectangle(0, 0, capture.Width, capture.Height), ImageLockMode.ReadWrite, capture.PixelFormat);
+			int bmpStride = bData.Stride;
+			int size = bData.Stride * bData.Height;
+
+			byte[] data = new byte[size];
+
+			/*This overload copies data of /size/ into /data/ from location specified (/Scan0/)*/
+			System.Runtime.InteropServices.Marshal.Copy(bData.Scan0, data, 0, size);
+			int yAdd = 0;
+			int r = 0;
+			int g = 0;
+			int b = 0;
+			//we look at 50x50 patches and compute histogram bins for the a/r/g/b values.
+
+			int stride = 1; //spacing between feature pixels
+
+			for (int patchX = 0; patchX < (capture.Width / detector_params.HistogramPatchSizeX); patchX++)
+			{
+				for (int patchY = 0; patchY < (capture.Height / detector_params.HistogramPatchSizeY); patchY++)
+				{
+					//int[] patch_hist_a = new int[numberOfBins];
+					int[] patchHistR = new int[detector_params.HistogramNumberOfBins];
+					int[] patchHistG = new int[detector_params.HistogramNumberOfBins];
+					int[] patchHistB = new int[detector_params.HistogramNumberOfBins];
+
+					int xStart = patchX * (detector_params.HistogramPatchSizeX * stride);
+					int yStart = patchY * (detector_params.HistogramPatchSizeY * stride);
+					int xEnd = (patchX + 1) * (detector_params.HistogramPatchSizeX * stride);
+					int yEnd = (patchY + 1) * (detector_params.HistogramPatchSizeY * stride);
+
+					for (int x_index = xStart; x_index < xEnd; x_index += stride)
+					{
+						for (int y_index = yStart; y_index < yEnd; y_index += stride)
+						{
+							yAdd = y_index * bmpStride;
+
+							//NOTE: while the pixel format is 32ARGB, reading byte-wise results in BGRA.
+							b = (int)(data[(x_index * 4) + (yAdd) + 0]);
+							g = (int)(data[(x_index * 4) + (yAdd) + 1]);
+							r = (int)(data[(x_index * 4) + (yAdd) + 2]);
+
+							patchHistR[(r * detector_params.HistogramNumberOfBins) / 256]++;
+							patchHistG[(g * detector_params.HistogramNumberOfBins) / 256]++;
+							patchHistB[(b * detector_params.HistogramNumberOfBins) / 256]++;
 
 
+						}
+					}
+
+					//enter the histograms as our features
+					features.AddRange(patchHistR);
+					features.AddRange(patchHistG);
+					features.AddRange(patchHistB);
+				}
+			}
+
+			capture.UnlockBits(bData);
+
+			for (int i = 0; i < features.Count; ++i)
+			{
+				finalFeatures.Add(features[i]);
+			}
 
 
+			return finalFeatures;
+		}
 
 
 

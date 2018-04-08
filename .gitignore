@@ -9,6 +9,10 @@
 *.userosscache
 *.sln.docstates
 
+Accord.*.xml
+Accord.xml
+Accord.config
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
