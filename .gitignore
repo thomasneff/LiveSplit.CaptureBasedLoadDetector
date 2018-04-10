@@ -12,6 +12,8 @@
 Accord.*.xml
 Accord.xml
 Accord.config
+Newtonsoft.Json.xml
+LiveSplit.CaptureBasedLoadDetector.dll.config
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

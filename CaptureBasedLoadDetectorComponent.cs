@@ -360,6 +360,7 @@ namespace LiveSplit.UI.Components
 			if (SplitsAreDifferent(state))
 			{
 				settings.ChangeAutoSplitSettingsToGameName(GameName, GameCategory);
+				settings.ReloadDetectorSettings(GameName, GameCategory);
 			}
 			liveSplitState = state;
 			/*

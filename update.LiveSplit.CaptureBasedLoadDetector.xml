@@ -4,10 +4,12 @@
 		<files>
 			<file path="Components/LiveSplit.CaptureBasedLoadDetector.dll" status="added" />
 			<file path="Components/Accord.dll" status="added" />
+			<file path="Components/Accord.Imaging.dll" status="added" />
 			<file path="Components/Accord.MachineLearning.dll" status="added" />
 			<file path="Components/Accord.Math.Core.dll" status="added" />
 			<file path="Components/Accord.Math.dll" status="added" />
 			<file path="Components/Accord.Statistics.dll" status="added" />
+			<file path="Components/Newtonsoft.Json.dll" status="added" />
 		</files>
 		<changelog>
 			<change>

@@ -1,0 +1,28 @@
+﻿ResizeImage:
+1000x800:
+GDI: ~30ms @ Debug, Nearest Neighbor
+Accord: ~5ms @ Debug, Nearest Neighbor
+		~23ms @ Debug, Bilinear
+
+
+Accord ScreenCaptureStream:
+not faster, takes ~35ms per frame.
+
+
+Best parameters with patch-histogram features (300 x 100) and SVM classifier:
+
+Training: pX = 300, pY = 10, bins = 8
+*
+optimization finished, #iter = 138
+Positive Trues: 1131 Falses: 0 (Min log-likelihood: -7,39664121264424)
+Negative Trues: 0 Falses: 48 (Max log-likelihood: -28,8157362613031)
+Best parameters: 
+HistogramPatchSizeX: 300
+HistogramPatchSizeY: 10
+HistogramNumberOfBins: 8
+MinLogLikelihoodPositive: -7,39664121264424
+MaxLogLikelihoodNegative: -28,8157362613031
+LogLikelihoodDistance: 21,4190950486589
+LogLikelihoodThreshold: -10,9664903874207
+
+Best parameters with gradient image features (300 x 100) and SVM classifier:

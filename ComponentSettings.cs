@@ -1,7 +1,9 @@
 ﻿using CaptureBasedLoadDetector;
 using LiveSplit.Model;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -16,6 +18,8 @@ namespace LiveSplit.UI.Components
 {
 	
 
+	
+
 	public partial class CaptureBasedLoadDetectorSettings : UserControl
 	{
 		#region Public Fields
@@ -24,7 +28,7 @@ namespace LiveSplit.UI.Components
 
 		public bool AutoSplitterDisableOnSkipUntilSplit = false;
 
-		public DetectorParameters DetectorParams = new DetectorParameters();
+		//public DetectorParameters DetectorParams = new DetectorParameters();
 
 		//Number of frames to wait for a change from load -> running and vice versa.
 		public int AutoSplitterJitterToleranceFrames = 8;
@@ -39,27 +43,16 @@ namespace LiveSplit.UI.Components
 
 		private AutoSplitData autoSplitData = null;
 
-		private float captureAspectRatioX = 16.0f;
-
-		private float captureAspectRatioY = 9.0f;
+		private string GameName = "";
+		private string GameCategory = "";
 
 		private List<string> captureIDs = null;
-
-		private Size captureSize = new Size(300, 100);
-
-		private float cropOffsetX = 0.0f;
-
-		private float cropOffsetY = -40.0f;
 
 		private bool drawingPreview = false;
 
 		private List<Control> dynamicAutoSplitterControls;
 
-		private float featureVectorResolutionX = 1920.0f;
-
-		private float featureVectorResolutionY = 1080.0f;
-
-		private ImageCaptureInfo imageCaptureInfo;
+		private GameDetectorSettings detectorSettings = new GameDetectorSettings();
 
 		private Bitmap lastDiagnosticCapture = null;
 
@@ -72,6 +65,10 @@ namespace LiveSplit.UI.Components
 		private int lastMatchingBins = 0;
 
 		private LiveSplitState liveSplitState = null;
+
+		private string SettingsFolderName = "CaptureBasedLoadDetectorSettings";
+		private string SettingsFileName = "DetectorSettings.json";
+		private string SVMFileName = "SVMModel.svm";
 
 		//private string DiagnosticsFolderName = "CrashNSTDiagnostics/";
 		private int numCaptures = 0;
@@ -104,11 +101,14 @@ namespace LiveSplit.UI.Components
 			AllGameAutoSplitSettings = new Dictionary<string, XmlElement>();
 			dynamicAutoSplitterControls = new List<Control>();
 			CreateAutoSplitControls(state);
+
 			liveSplitState = state;
 			initImageCaptureInfo();
 			//processListComboBox.SelectedIndex = 0;
 			lblVersion.Text = "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
-
+			
+			ReloadDetectorSettings(state.Run.GameName, state.Run.CategoryName);
+			
 			RefreshCaptureWindowList();
 			//processListComboBox.SelectedIndex = 0;
 			DrawPreview();
@@ -134,21 +134,21 @@ namespace LiveSplit.UI.Components
 				Point screenCenter = new Point(screenRect.Width / 2, screenRect.Height / 2);
 
 				//Change size according to selected crop
-				screenRect.Width = (int)(imageCaptureInfo.crop_coordinate_right - imageCaptureInfo.crop_coordinate_left);
-				screenRect.Height = (int)(imageCaptureInfo.crop_coordinate_bottom - imageCaptureInfo.crop_coordinate_top);
+				screenRect.Width = (int)(detectorSettings.CaptureInfo.crop_coordinate_right - detectorSettings.CaptureInfo.crop_coordinate_left);
+				screenRect.Height = (int)(detectorSettings.CaptureInfo.crop_coordinate_bottom - detectorSettings.CaptureInfo.crop_coordinate_top);
 
 				//Compute crop coordinates and width/ height based on resoution
-				ImageCapture.SizeAdjustedCropAndOffset(screenRect.Width, screenRect.Height, ref imageCaptureInfo);
+				ImageCapture.SizeAdjustedCropAndOffset(screenRect.Width, screenRect.Height, ref detectorSettings.CaptureInfo);
 
 				//Adjust for crop offset
-				imageCaptureInfo.center_of_frame_x += imageCaptureInfo.crop_coordinate_left;
-				imageCaptureInfo.center_of_frame_y += imageCaptureInfo.crop_coordinate_top;
+				detectorSettings.CaptureInfo.center_of_frame_x += detectorSettings.CaptureInfo.crop_coordinate_left;
+				detectorSettings.CaptureInfo.center_of_frame_y += detectorSettings.CaptureInfo.crop_coordinate_top;
 
 				//Adjust for selected screen offset
-				imageCaptureInfo.center_of_frame_x += selected_screen.Bounds.X;
-				imageCaptureInfo.center_of_frame_y += selected_screen.Bounds.Y;
+				detectorSettings.CaptureInfo.center_of_frame_x += selected_screen.Bounds.X;
+				detectorSettings.CaptureInfo.center_of_frame_y += selected_screen.Bounds.Y;
 
-				b = ImageCapture.CaptureFromDisplay(ref imageCaptureInfo);
+				b = ImageCapture.CaptureFromDisplay(ref detectorSettings.CaptureInfo);
 			}
 			else
 			{
@@ -166,7 +166,7 @@ namespace LiveSplit.UI.Components
 				if ((int)handle == 0)
 					return b;
 
-				b = ImageCapture.PrintWindow(handle, ref imageCaptureInfo, useCrop: true);
+				b = ImageCapture.PrintWindow(handle, ref detectorSettings.CaptureInfo, useCrop: true);
 			}
 
 			return b;
@@ -175,19 +175,19 @@ namespace LiveSplit.UI.Components
 		public bool CaptureAndDetectLoads()
 		{
 
-			if (DetectorParams == null)
+			if (detectorSettings.DetectorParams == null)
 				return false;
 
-			if (DetectorParams.SVM == null)
+			if (detectorSettings.DetectorParams.SVM == null)
 				return false;
 
 			//Capture image using the settings defined for the component
 			Bitmap capture = CaptureImage();
 
 			//Feed the image to the feature detection
-			var features = FeatureDetector.featuresFromBitmapDouble(capture, DetectorParams).ToArray();
+			var features = FeatureDetector.featuresFromBitmapDouble(capture, detectorSettings.DetectorParams).ToArray();
 
-			var is_loading = FeatureDetector.computeSVMDetection(features, DetectorParams);
+			var is_loading = FeatureDetector.computeSVMDetection(features, detectorSettings.DetectorParams);
 
 			return is_loading;
 		}
@@ -214,7 +214,7 @@ namespace LiveSplit.UI.Components
 					screenRect.Height = (int)(imageCaptureInfo.crop_coordinate_bottom - imageCaptureInfo.crop_coordinate_top);
 				}
 
-				//Compute crop coordinates and width/ height based on resoution
+				//Compute crop coordinates and width/ height based on resolution
 				ImageCapture.SizeAdjustedCropAndOffset(screenRect.Width, screenRect.Height, ref imageCaptureInfo);
 
 				imageCaptureInfo.actual_crop_size_x = 2 * imageCaptureInfo.center_of_frame_x;
@@ -236,8 +236,8 @@ namespace LiveSplit.UI.Components
 
 				b = ImageCapture.CaptureFromDisplay(ref imageCaptureInfo);
 
-				imageCaptureInfo.actual_offset_x = cropOffsetX;
-				imageCaptureInfo.actual_offset_y = cropOffsetY;
+				imageCaptureInfo.actual_offset_x = imageCaptureInfo.cropOffsetX;
+				imageCaptureInfo.actual_offset_y = imageCaptureInfo.cropOffsetY;
 			}
 			else
 			{
@@ -262,6 +262,43 @@ namespace LiveSplit.UI.Components
 		}
 
 
+		public void StoreDetectorSettings()
+		{
+
+			Directory.CreateDirectory(SettingsFolderName);
+			Directory.CreateDirectory(Path.Combine(SettingsFolderName, GameName));
+
+			string detectorSettingsJSON = JsonConvert.SerializeObject(detectorSettings, Newtonsoft.Json.Formatting.Indented);
+			File.WriteAllText(Path.Combine(SettingsFolderName, GameName, SettingsFileName), detectorSettingsJSON);
+
+			Accord.IO.Serializer.Save(obj: detectorSettings.DetectorParams.SVM, path: Path.Combine(SettingsFolderName, GameName, SVMFileName));
+
+		}
+		public void UpdateGUIFromDetectorSettings()
+		{
+			//TODO: update all GUI elements for loaded detector settings.
+		}
+		public void ReloadDetectorSettings(string gameName, string category)
+		{
+			GameName = removeInvalidXMLCharacters(gameName);
+			GameCategory = removeInvalidXMLCharacters(category);
+
+			if (!Directory.Exists(Path.Combine(SettingsFolderName, GameName)))
+				return;
+
+
+			string detectorSettingsJSON = File.ReadAllText(Path.Combine(SettingsFolderName, GameName, SettingsFileName));
+
+			if (detectorSettingsJSON == null || detectorSettingsJSON.Length == 0)
+				return;
+
+			detectorSettings = JsonConvert.DeserializeObject<GameDetectorSettings>(detectorSettingsJSON);
+
+
+			UpdateGUIFromDetectorSettings();
+
+
+		}
 
 		public void ChangeAutoSplitSettingsToGameName(string gameName, string category)
 		{
@@ -668,9 +705,9 @@ namespace LiveSplit.UI.Components
 
 		private void DrawPreview()
 		{
-			ImageCaptureInfo copy = imageCaptureInfo;
-			copy.captureSizeX = previewPictureBox.Width;
-			copy.captureSizeY = previewPictureBox.Height;
+			ImageCaptureInfo copy = detectorSettings.CaptureInfo;
+			copy.featureSizeX = previewPictureBox.Width;
+			copy.featureSizeY = previewPictureBox.Height;
 
 			//Show something in the preview
 			previewImage = CaptureImageFullPreview(ref copy);
@@ -687,10 +724,10 @@ namespace LiveSplit.UI.Components
 
 			//Console.WriteLine("SIZE X: {0}, SIZE Y: {1}", imageCaptureInfo.actual_crop_size_x, imageCaptureInfo.actual_crop_size_y);
 
-			imageCaptureInfo.crop_coordinate_left = selectionRectanglePreviewBox.Left * (crop_size_x / previewPictureBox.Width);
-			imageCaptureInfo.crop_coordinate_right = selectionRectanglePreviewBox.Right * (crop_size_x / previewPictureBox.Width);
-			imageCaptureInfo.crop_coordinate_top = selectionRectanglePreviewBox.Top * (crop_size_y / previewPictureBox.Height);
-			imageCaptureInfo.crop_coordinate_bottom = selectionRectanglePreviewBox.Bottom * (crop_size_y / previewPictureBox.Height);
+			detectorSettings.CaptureInfo.crop_coordinate_left = selectionRectanglePreviewBox.Left * (crop_size_x / previewPictureBox.Width);
+			detectorSettings.CaptureInfo.crop_coordinate_right = selectionRectanglePreviewBox.Right * (crop_size_x / previewPictureBox.Width);
+			detectorSettings.CaptureInfo.crop_coordinate_top = selectionRectanglePreviewBox.Top * (crop_size_y / previewPictureBox.Height);
+			detectorSettings.CaptureInfo.crop_coordinate_bottom = selectionRectanglePreviewBox.Bottom * (crop_size_y / previewPictureBox.Height);
 
 			copy.crop_coordinate_left = selectionRectanglePreviewBox.Left * (crop_size_x / previewPictureBox.Width);
 			copy.crop_coordinate_right = selectionRectanglePreviewBox.Right * (crop_size_x / previewPictureBox.Width);
@@ -701,29 +738,29 @@ namespace LiveSplit.UI.Components
 			croppedPreviewPictureBox.Image = full_cropped_capture;
 			lastFullCroppedCapture = full_cropped_capture;
 
-			copy.captureSizeX = captureSize.Width;
-			copy.captureSizeY = captureSize.Height;
+			copy.featureSizeX = detectorSettings.CaptureInfo.featureSizeX;//featureSize.Width;
+			copy.featureSizeY = detectorSettings.CaptureInfo.featureSizeY;
 
 			// Draw cropped feature capture preview
 			var capture = CaptureImage();
 
 			featureCropPictureBox.Image = capture;
 
-			if (DetectorParams != null)
+			if (detectorSettings.DetectorParams != null)
 			{
 				
-				var features = FeatureDetector.featuresFromBitmapDouble(capture, DetectorParams);
+				var features = FeatureDetector.featuresFromBitmapDouble(capture, detectorSettings.DetectorParams);
 
-				if (DetectorParams.SVM != null)
+				if (detectorSettings.DetectorParams.SVM != null)
 				{
-					var log_likelihood = DetectorParams.SVM.LogLikelihood(features.ToArray());
+					var log_likelihood = detectorSettings.DetectorParams.SVM.LogLikelihood(features.ToArray());
 
 
 					//lastFeatures = features;
 					lastDiagnosticCapture = capture;
 					//lastMatchingBins = tempMatchingBins;
-					matchDisplayLabel.Text = (log_likelihood + -DetectorParams.MaxLogLikelihoodNegative).ToString("F");
-					requiredMatchesLbl.Text = (DetectorParams.MinLogLikelihoodPositive + -DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+					matchDisplayLabel.Text = (log_likelihood + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+					requiredMatchesLbl.Text = (detectorSettings.DetectorParams.MinLogLikelihoodPositive + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
 
 				}
 
@@ -738,20 +775,20 @@ namespace LiveSplit.UI.Components
 
 		private void initImageCaptureInfo()
 		{
-			imageCaptureInfo = new ImageCaptureInfo();
+			//imageCaptureInfo = new ImageCaptureInfo();
 
 			selectionTopLeft = new Point(0, 0);
 			selectionBottomRight = new Point(previewPictureBox.Width, previewPictureBox.Height);
 			selectionRectanglePreviewBox = new Rectangle(selectionTopLeft.X, selectionTopLeft.Y, selectionBottomRight.X - selectionTopLeft.X, selectionBottomRight.Y - selectionTopLeft.Y);
 			requiredMatchesLbl.Text = "0.0";
 
-			imageCaptureInfo.featureVectorResolutionX = featureVectorResolutionX;
-			imageCaptureInfo.featureVectorResolutionY = featureVectorResolutionY;
-			imageCaptureInfo.captureSizeX = captureSize.Width;
-			imageCaptureInfo.captureSizeY = captureSize.Height;
-			imageCaptureInfo.cropOffsetX = cropOffsetX;
-			imageCaptureInfo.cropOffsetY = cropOffsetY;
-			imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
+			//imageCaptureInfo.captureResolutionX = captureResolutionX;
+			//imageCaptureInfo.captureResolutionY = captureResolutionY;
+			//imageCaptureInfo.featureSizeX = featureSize.Width;
+			//imageCaptureInfo.featureSizeY = featureSize.Height;
+			//imageCaptureInfo.cropOffsetX = cropOffsetX;
+			//imageCaptureInfo.cropOffsetY = cropOffsetY;
+			//imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
 		}
 
 		private void previewPictureBox_MouseClick(object sender, MouseEventArgs e)
@@ -989,43 +1026,55 @@ namespace LiveSplit.UI.Components
 
 		private void numericUpDownResolutionWidth_ValueChanged(object sender, EventArgs e)
 		{
-			captureAspectRatioX = (float) numericUpDownResolutionWidth.Value;
-			imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
+			detectorSettings.CaptureInfo.captureResolutionX = (float) numericUpDownResolutionWidth.Value;
+			detectorSettings.CaptureInfo.captureAspectRatio = detectorSettings.CaptureInfo.captureResolutionX / detectorSettings.CaptureInfo.captureResolutionY;
+
+			StoreDetectorSettings();
 		}
 
 		private void numericUpDownResolutionHeight_ValueChanged(object sender, EventArgs e)
 		{
-			captureAspectRatioY = (float)numericUpDownResolutionHeight.Value;
-			imageCaptureInfo.captureAspectRatio = captureAspectRatioX / captureAspectRatioY;
+			detectorSettings.CaptureInfo.captureResolutionY = (float)numericUpDownResolutionHeight.Value;
+			detectorSettings.CaptureInfo.captureAspectRatio = detectorSettings.CaptureInfo.captureResolutionX / detectorSettings.CaptureInfo.captureResolutionY;
+
+			StoreDetectorSettings();
 		}
 
 		private void numericUpDownCaptureSizeX_ValueChanged(object sender, EventArgs e)
 		{
-			captureSize.Width = (int)numericUpDownCaptureSizeX.Value;
-			imageCaptureInfo.captureSizeX = captureSize.Width;
+			detectorSettings.CaptureInfo.featureSizeX = (int)numericUpDownCaptureSizeX.Value;
+
+			StoreDetectorSettings();
 		}
 
 		private void numericUpDownCaptureSizeY_ValueChanged(object sender, EventArgs e)
 		{
-			captureSize.Height = (int)numericUpDownCaptureSizeY.Value;
-			imageCaptureInfo.captureSizeY = captureSize.Height;
+			detectorSettings.CaptureInfo.featureSizeY = (int)numericUpDownCaptureSizeY.Value;
+
+			StoreDetectorSettings();
 		}
 
 		private void numericUpDownCropOffsetX_ValueChanged(object sender, EventArgs e)
 		{
-			cropOffsetX = (float) numericUpDownCropOffsetX.Value;
-			imageCaptureInfo.cropOffsetX = cropOffsetX;
+			detectorSettings.CaptureInfo.cropOffsetX = (float) numericUpDownCropOffsetX.Value;
+
+			StoreDetectorSettings();
 		}
 
 		private void numericUpDownCropOffsetY_ValueChanged(object sender, EventArgs e)
 		{
-			cropOffsetY = (float)numericUpDownCropOffsetY.Value;
-			imageCaptureInfo.cropOffsetY = cropOffsetY;
+			detectorSettings.CaptureInfo.cropOffsetY = (float)numericUpDownCropOffsetY.Value;
+
+			StoreDetectorSettings();
+
 		}
 
 		private void btnTrainAuto_Click(object sender, EventArgs e)
 		{
-			DetectorParams = Training.OptimizeDetectorFromFolders();
+			detectorSettings.DetectorParams = Training.OptimizeDetectorFromFolders();
+
+			StoreDetectorSettings();
+
 		}
 	}
 	public class AutoSplitData
@@ -1069,4 +1118,13 @@ namespace LiveSplit.UI.Components
 
 		#endregion Public Constructors
 	}
+
+	public class GameDetectorSettings
+	{
+		public DetectorParameters DetectorParams = null;
+		public ImageCaptureInfo CaptureInfo = new ImageCaptureInfo(1920, 1080, 300, 100, 0, -40);
+		public Rectangle CaptureRegion; //This simply stores the chosen capture region. (We need to generate selectionTopLeft and selectionTopRight from it)
+
+	}
+
 }
