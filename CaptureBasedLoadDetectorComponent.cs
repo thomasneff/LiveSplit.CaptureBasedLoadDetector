@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using CaptureBasedLoadDetector;
+using LiveSplit.Model.Input;
 //using System.Threading;
 
 namespace LiveSplit.UI.Components
@@ -38,6 +39,7 @@ namespace LiveSplit.UI.Components
 			RUNNING,
 			LOADING
 		}
+
 
 		private CrashNSTState NSTState = CrashNSTState.RUNNING;
 		private int runningFrames = 0;
@@ -141,7 +143,7 @@ namespace LiveSplit.UI.Components
 				//Console.WriteLine("TIME DIFF START: {0}", DateTime.Now - lastTime);
 				lastTime = DateTime.Now;
 				//Capture image using the settings defined for the component
-				Bitmap capture = settings.CaptureImage();
+				//Bitmap capture = settings.CaptureImage();
 
 				//Feed the image to the feature detection
 				

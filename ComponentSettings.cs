@@ -1,5 +1,6 @@
 ﻿using CaptureBasedLoadDetector;
 using LiveSplit.Model;
+using LiveSplit.Model.Input;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -40,6 +41,9 @@ namespace LiveSplit.UI.Components
 		#endregion Public Fields
 
 		#region Private Fields
+
+		private CompositeHook Hook;
+
 
 		private AutoSplitData autoSplitData = null;
 
@@ -90,6 +94,9 @@ namespace LiveSplit.UI.Components
 		private Rectangle selectionRectanglePreviewBox;
 		private Point selectionTopLeft = new Point(0, 0);
 
+		private bool RecordingLoads = false;
+		private bool RecordingGameplay = false;
+
 		#endregion Private Fields
 
 		#region Public Constructors
@@ -101,20 +108,45 @@ namespace LiveSplit.UI.Components
 			AllGameAutoSplitSettings = new Dictionary<string, XmlElement>();
 			dynamicAutoSplitterControls = new List<Control>();
 			CreateAutoSplitControls(state);
-
+			Hook = new CompositeHook();
+			RegisterHotKeys();
 			liveSplitState = state;
 			initImageCaptureInfo();
 			//processListComboBox.SelectedIndex = 0;
 			lblVersion.Text = "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 			
 			ReloadDetectorSettings(state.Run.GameName, state.Run.CategoryName);
-			
+			detectorSettings.RecorderSettings = new RecorderSettings();
+			Directory.CreateDirectory(Path.Combine(SettingsFolderName, GameName, "Recording_Gameplay"));
+			Directory.CreateDirectory(Path.Combine(SettingsFolderName, GameName, "Recording_Loads"));
+			Hook.KeyOrButtonPressed += hook_KeyOrButtonPressed;
 			RefreshCaptureWindowList();
 			//processListComboBox.SelectedIndex = 0;
 			DrawPreview();
 		}
 
 		#endregion Public Constructors
+
+		private void RegisterHotKeys()
+		{
+			try
+			{
+				UnregisterAllHotkeys(Hook);
+
+				Hook.RegisterHotKey(detectorSettings.RecorderSettings.RecordKeyLoading);
+				Hook.RegisterHotKey(detectorSettings.RecorderSettings.RecordKeyGameplay);
+				Hook.RegisterHotKey(detectorSettings.RecorderSettings.StopKey);
+			}
+			catch (Exception ex)
+			{
+				
+			}
+		}
+		public void UnregisterAllHotkeys(CompositeHook hook)
+		{
+			hook.UnregisterAllHotkeys();
+			HotkeyHook.Instance.UnregisterAllHotkeys();
+		}
 
 		#region Public Methods
 
@@ -172,8 +204,40 @@ namespace LiveSplit.UI.Components
 			return b;
 		}
 
+		public void SaveBitmapToFolder(Bitmap bmp, string filename)
+		{
+			//Directory.CreateDirectory(filename);
+
+			
+			using (MemoryStream memory = new MemoryStream())
+			{
+				using (FileStream fs = new FileStream(filename, FileMode.Create, FileAccess.ReadWrite))
+				{
+					bmp.Save(memory, ImageFormat.Jpeg);
+					byte[] bytes = memory.ToArray();
+					fs.Write(bytes, 0, bytes.Length);
+				}
+			}
+			//bmp.Save(filename, ImageFormat.Jpeg);
+		}
+
 		public bool CaptureAndDetectLoads()
 		{
+
+			//Capture image using the settings defined for the component
+			Bitmap capture = CaptureImage();
+
+			if (RecordingGameplay)
+			{
+				numCaptures++;
+				SaveBitmapToFolder(capture, Path.Combine(SettingsFolderName, GameName, "Recording_Gameplay", numCaptures + ".jpg"));
+			}
+
+			if (RecordingLoads)
+			{
+				numCaptures++;
+				SaveBitmapToFolder(capture, Path.Combine(SettingsFolderName, GameName, "Recording_Loads", numCaptures + ".jpg"));
+			}
 
 			if (detectorSettings.DetectorParams == null)
 				return false;
@@ -181,8 +245,7 @@ namespace LiveSplit.UI.Components
 			if (detectorSettings.DetectorParams.SVM == null)
 				return false;
 
-			//Capture image using the settings defined for the component
-			Bitmap capture = CaptureImage();
+			
 
 			//Feed the image to the feature detection
 			var features = FeatureDetector.featuresFromBitmapDouble(capture, detectorSettings.DetectorParams).ToArray();
@@ -265,11 +328,19 @@ namespace LiveSplit.UI.Components
 		public void StoreDetectorSettings()
 		{
 
+			
+
 			Directory.CreateDirectory(SettingsFolderName);
 			Directory.CreateDirectory(Path.Combine(SettingsFolderName, GameName));
 
 			string detectorSettingsJSON = JsonConvert.SerializeObject(detectorSettings, Newtonsoft.Json.Formatting.Indented);
 			File.WriteAllText(Path.Combine(SettingsFolderName, GameName, SettingsFileName), detectorSettingsJSON);
+
+			if (detectorSettings.DetectorParams == null)
+				return;
+
+			if (detectorSettings.DetectorParams.SVM == null)
+				return;
 
 			Accord.IO.Serializer.Save(obj: detectorSettings.DetectorParams.SVM, path: Path.Combine(SettingsFolderName, GameName, SVMFileName));
 
@@ -277,6 +348,43 @@ namespace LiveSplit.UI.Components
 		public void UpdateGUIFromDetectorSettings()
 		{
 			//TODO: update all GUI elements for loaded detector settings.
+
+			if (detectorSettings == null)
+				return;
+			
+			if (numericUpDownCaptureSizeX.Value != detectorSettings.CaptureInfo.featureSizeX)
+			{
+				numericUpDownCaptureSizeX.Value = detectorSettings.CaptureInfo.featureSizeX;
+			}
+
+			if (numericUpDownCaptureSizeY.Value != detectorSettings.CaptureInfo.featureSizeY)
+			{
+				numericUpDownCaptureSizeY.Value = detectorSettings.CaptureInfo.featureSizeY;
+			}
+
+			if ((int)numericUpDownCropOffsetX.Value != (int)detectorSettings.CaptureInfo.cropOffsetX)
+			{
+				numericUpDownCropOffsetX.Value = (int)detectorSettings.CaptureInfo.cropOffsetX;
+			}
+
+			if ((int)numericUpDownCropOffsetY.Value != (int)detectorSettings.CaptureInfo.cropOffsetY)
+			{
+				numericUpDownCropOffsetY.Value = (int)detectorSettings.CaptureInfo.cropOffsetY;
+			}
+
+			if (numericUpDownResolutionWidth.Value != (int)detectorSettings.CaptureInfo.captureResolutionX)
+			{
+				numericUpDownResolutionWidth.Value = (int)detectorSettings.CaptureInfo.captureResolutionX;
+			}
+
+			if (numericUpDownResolutionHeight.Value != (int)detectorSettings.CaptureInfo.captureResolutionY)
+			{
+				numericUpDownResolutionHeight.Value = (int)detectorSettings.CaptureInfo.captureResolutionY;
+			}
+
+			
+
+
 		}
 		public void ReloadDetectorSettings(string gameName, string category)
 		{
@@ -284,9 +392,21 @@ namespace LiveSplit.UI.Components
 			GameCategory = removeInvalidXMLCharacters(category);
 
 			if (!Directory.Exists(Path.Combine(SettingsFolderName, GameName)))
-				return;
+			{
+				detectorSettings = new GameDetectorSettings();
+				StoreDetectorSettings();
+			}
+			
 
+			if(!File.Exists(Path.Combine(SettingsFolderName, GameName, SettingsFileName)))
+			{
+				detectorSettings = new GameDetectorSettings();
+				StoreDetectorSettings();
+			}
 
+			selectionTopLeft = new Point(detectorSettings.CaptureRegion.Left, detectorSettings.CaptureRegion.Top);
+			selectionBottomRight = new Point(detectorSettings.CaptureRegion.Right, detectorSettings.CaptureRegion.Bottom);
+			
 			string detectorSettingsJSON = File.ReadAllText(Path.Combine(SettingsFolderName, GameName, SettingsFileName));
 
 			if (detectorSettingsJSON == null || detectorSettingsJSON.Length == 0)
@@ -703,6 +823,34 @@ namespace LiveSplit.UI.Components
 			previewPictureBox.Image = capture_image;
 		}
 
+		// Basic support for keyboard/button input.
+		private void hook_KeyOrButtonPressed(object sender, KeyOrButton e)
+		{
+			
+			if ((Form.ActiveForm == liveSplitState.Form && !detectorSettings.RecorderSettings.GlobalHotKeysEnabled)
+				|| detectorSettings.RecorderSettings.GlobalHotKeysEnabled)
+			{
+				if (e == detectorSettings.RecorderSettings.RecordKeyLoading)
+				{
+					RecordingLoads = true;
+					RecordingGameplay = false;
+				}
+
+				if (e == detectorSettings.RecorderSettings.RecordKeyGameplay)
+				{
+					RecordingLoads = false;
+					RecordingGameplay = true;
+				}
+
+
+				if (e == detectorSettings.RecorderSettings.StopKey)
+				{
+					RecordingGameplay = false;
+					RecordingLoads = false;
+				}
+			}
+		}
+
 		private void DrawPreview()
 		{
 			ImageCaptureInfo copy = detectorSettings.CaptureInfo;
@@ -753,14 +901,21 @@ namespace LiveSplit.UI.Components
 
 				if (detectorSettings.DetectorParams.SVM != null)
 				{
-					var log_likelihood = detectorSettings.DetectorParams.SVM.LogLikelihood(features.ToArray());
+					try
+					{
+						var log_likelihood = detectorSettings.DetectorParams.SVM.LogLikelihood(features.ToArray());
 
 
-					//lastFeatures = features;
-					lastDiagnosticCapture = capture;
-					//lastMatchingBins = tempMatchingBins;
-					matchDisplayLabel.Text = (log_likelihood + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
-					requiredMatchesLbl.Text = (detectorSettings.DetectorParams.MinLogLikelihoodPositive + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+						//lastFeatures = features;
+						lastDiagnosticCapture = capture;
+						//lastMatchingBins = tempMatchingBins;
+						matchDisplayLabel.Text = (log_likelihood + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+						requiredMatchesLbl.Text = (detectorSettings.DetectorParams.LogLikelihoodThreshold + -detectorSettings.DetectorParams.MaxLogLikelihoodNegative).ToString("F");
+					}
+					catch
+					{
+
+					}
 
 				}
 
@@ -966,8 +1121,9 @@ namespace LiveSplit.UI.Components
 			{
 				selectionBottomRight = new Point(x, y);
 			}
-
+			detectorSettings.CaptureRegion = new Rectangle(selectionTopLeft.X, selectionTopLeft.Y, selectionBottomRight.X - selectionTopLeft.X, selectionBottomRight.Y - selectionTopLeft.Y);
 			selectionRectanglePreviewBox = new Rectangle(selectionTopLeft.X, selectionTopLeft.Y, selectionBottomRight.X - selectionTopLeft.X, selectionBottomRight.Y - selectionTopLeft.Y);
+			StoreDetectorSettings();
 		}
 
 		private XmlElement ToElement<T>(XmlDocument document, String name, T value)
@@ -1071,7 +1227,8 @@ namespace LiveSplit.UI.Components
 
 		private void btnTrainAuto_Click(object sender, EventArgs e)
 		{
-			detectorSettings.DetectorParams = Training.OptimizeDetectorFromFolders();
+			string exe_path = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+			detectorSettings.DetectorParams = Training.OptimizeDetectorFromFolders(detectorSettings.CaptureInfo, Path.Combine(exe_path, SettingsFolderName, GameName));
 
 			StoreDetectorSettings();
 
@@ -1119,11 +1276,20 @@ namespace LiveSplit.UI.Components
 		#endregion Public Constructors
 	}
 
+	public class RecorderSettings
+	{
+		public bool GlobalHotKeysEnabled = true;
+		public KeyOrButton RecordKeyLoading = new KeyOrButton(Keys.P);
+		public KeyOrButton RecordKeyGameplay = new KeyOrButton(Keys.G);
+		public KeyOrButton StopKey = new KeyOrButton(Keys.S);
+	}
+
 	public class GameDetectorSettings
 	{
 		public DetectorParameters DetectorParams = null;
 		public ImageCaptureInfo CaptureInfo = new ImageCaptureInfo(1920, 1080, 300, 100, 0, -40);
-		public Rectangle CaptureRegion; //This simply stores the chosen capture region. (We need to generate selectionTopLeft and selectionTopRight from it)
+		public RecorderSettings RecorderSettings = new RecorderSettings();
+		public Rectangle CaptureRegion = new Rectangle(0,0, 456, 256); //This simply stores the chosen capture region. (We need to generate selectionTopLeft and selectionTopRight from it)
 
 	}
 

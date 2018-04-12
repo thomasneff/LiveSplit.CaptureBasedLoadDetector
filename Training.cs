@@ -10,10 +10,12 @@ using Accord.MachineLearning.VectorMachines.Learning;
 using Accord.Statistics.Kernels;
 using Accord.Math.Optimization.Losses;
 using Accord.MachineLearning.VectorMachines;
+using AForge.Imaging.Filters;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace CaptureBasedLoadDetector
 {
-
 	
 	public class DetectorParameters : ICloneable
 	{
@@ -40,6 +42,8 @@ namespace CaptureBasedLoadDetector
 
 	class Training
 	{
+		public static int NumberOfAugmentedImages = 20;
+
 		/// <summary>
 		/// Loads all images from a chosen folder and computes all features for it.
 		/// </summary>
@@ -60,28 +64,185 @@ namespace CaptureBasedLoadDetector
 
 			List<double[]> features_all = new List<double[]>();
 
+			bool debug_enabled = true;
+
+			if (debug_enabled)
+				Directory.CreateDirectory("aug_imgs");
+
+			int img_it = 0;
 			foreach (var file in files)
 			{
 				Bitmap bmp = new Bitmap(file.FullName);
-
-				//Make 32 bit ARGB bitmap
-				Bitmap clone = new Bitmap(bmp.Width, bmp.Height,
-					System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-
-				using (Graphics gr = Graphics.FromImage(clone))
+				img_it++;
+				for (int i = 0; i < NumberOfAugmentedImages; ++i)
 				{
-					gr.DrawImage(bmp, new Rectangle(0, 0, clone.Width, clone.Height));
+					//Make 32 bit ARGB bitmap
+					Bitmap clone = new Bitmap(bmp.Width, bmp.Height,
+						System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+					Random rng = new Random();
+
+					int x_off_random = rng.Next((-clone.Width / 20), (clone.Width / 20) + 1);
+					int y_off_random = rng.Next((-clone.Height / 20), (clone.Height / 20) + 1);
+
+					int x_size_random = rng.Next((-clone.Width / 10), (clone.Width / 10) + 1);
+					int y_size_random = rng.Next((-clone.Height / 10), (clone.Height / 10) + 1);
+
+					int do_blur = rng.Next(0, 2);
+
+					using (Graphics gr = Graphics.FromImage(clone))
+					{ 
+						gr.DrawImage(bmp, new Rectangle(0, 0, clone.Width, clone.Height));
+						gr.DrawImage(bmp, new Rectangle(x_off_random, y_off_random, clone.Width + x_size_random, clone.Height + y_size_random));
+					}
+
+
+					/*if(resize_factor == 2)
+					{
+						ResizeBilinear filter = new ResizeBilinear(clone.Width / 2, clone.Height / 2);
+						var resized = filter.Apply(clone);
+
+						filter = new ResizeBilinear(clone.Width, clone.Height);
+						clone = filter.Apply(resized);
+					}
+
+					if (resize_factor == 3)
+					{
+						ResizeNearestNeighbor filter = new ResizeNearestNeighbor(clone.Width / 2, clone.Height / 2);
+						var resized = filter.Apply(clone);
+
+						filter = new ResizeNearestNeighbor(clone.Width, clone.Height);
+						clone = filter.Apply(resized);
+					}
+
+					if (resize_factor == 4)
+					{
+						ResizeBilinear filter = new ResizeBilinear(clone.Width / 4, clone.Height / 4);
+						var resized = filter.Apply(clone);
+
+						filter = new ResizeBilinear(clone.Width, clone.Height);
+						clone = filter.Apply(resized);
+					}
+					*/
+
+					int resamplingFactor = Math.Min((1 + i/2), 10);
+
+					ResizeBilinear filter = new ResizeBilinear(clone.Width / resamplingFactor, clone.Height / resamplingFactor);
+					var resized = filter.Apply(clone);
+
+					filter = new ResizeBilinear(clone.Width, clone.Height);
+					clone = filter.Apply(resized);
+
+		
+
+					List<double> features = FeatureDetector.featuresFromBitmapDouble(clone, detector_params, 5);
+
+					features_all.Add(features.ToArray());
+					if (img_it < 2 && debug_enabled)
+						clone.Save("aug_imgs/aug_" + img_it + "_" + i + ".jpg", ImageFormat.Jpeg);
+					clone.Dispose();
 				}
 
-				List<double> features = FeatureDetector.featuresFromBitmapDouble(clone, detector_params);
-
-				features_all.Add(features.ToArray());
-
 				bmp.Dispose();
-				clone.Dispose();
+
 			}
 
 			return features_all.ToArray();
+		}
+
+		public static DetectorParameters PerformTrainingBinarySVM(double[][] positive_data, double[][] negative_data, DetectorParameters current_detector_params)
+		{
+			var teacher = new SequentialMinimalOptimization<Gaussian>()
+			{
+				UseKernelEstimation = true,
+				UseComplexityHeuristic = true
+			};
+
+			var data = new double[positive_data.GetLength(0) + negative_data.GetLength(0)][];
+
+			List<double[]> data_examples = new List<double[]>();
+			List<double> targets = new List<double>();
+
+
+			for (int i = 0; i < positive_data.GetLength(0); ++i)
+			{
+				data_examples.Add(positive_data[i]);
+				targets.Add(0);
+			}
+
+			for (int i = 0; i < negative_data.GetLength(0); ++i)
+			{
+				data_examples.Add(negative_data[i]);
+				targets.Add(1);
+			}
+
+
+			var all_examples = data_examples.ToArray();
+			var all_targets = targets.ToArray();
+
+
+
+			// Learn a support vector machine
+			var svm = teacher.Learn(all_examples, all_targets);
+			current_detector_params.SVM = svm;
+
+			int trues = 0;
+			int falses = 0;
+
+			foreach (double[] d_val in positive_data)
+			{
+				var prob = svm.Probability(d_val);
+				var log_likelihood = svm.LogLikelihood(d_val);
+				var decision = log_likelihood > current_detector_params.LogLikelihoodThreshold;
+
+				current_detector_params.MinLogLikelihoodPositive = Math.Min(log_likelihood, current_detector_params.MinLogLikelihoodPositive);
+
+				if (decision == true)
+				{
+					trues++;
+				}
+				else
+				{
+					falses++;
+				}
+
+			}
+
+			System.Console.WriteLine("Positive Trues: " + trues.ToString() + " Falses: " + falses.ToString() + " (Min log-likelihood: " + current_detector_params.MinLogLikelihoodPositive.ToString() + ")");
+
+
+			trues = 0;
+			falses = 0;
+
+
+			foreach (double[] d_val in negative_data)
+			{
+				var prob = svm.Probability(d_val);
+				var log_likelihood = svm.LogLikelihood(d_val);
+				var decision = log_likelihood > current_detector_params.LogLikelihoodThreshold;
+
+				current_detector_params.MaxLogLikelihoodNegative = Math.Max(log_likelihood, current_detector_params.MaxLogLikelihoodNegative);
+
+				if (decision == true)
+				{
+					trues++;
+				}
+				else
+				{
+					falses++;
+				}
+
+			}
+
+
+			System.Console.WriteLine("Negative Trues: " + trues.ToString() + " Falses: " + falses.ToString() + " (Max log-likelihood: " + current_detector_params.MaxLogLikelihoodNegative.ToString() + ")");
+
+			// We want the threshold to be more on the side of "not loading", as errors during gameplay are worse.
+			current_detector_params.LogLikelihoodThreshold = (3.5 * current_detector_params.MaxLogLikelihoodNegative + 2.5 * current_detector_params.MinLogLikelihoodPositive) / 6.0;
+			current_detector_params.DetectsPerfectly = current_detector_params.MaxLogLikelihoodNegative < current_detector_params.MinLogLikelihoodPositive;
+			current_detector_params.LogLikelihoodDistance = current_detector_params.MinLogLikelihoodPositive - current_detector_params.MaxLogLikelihoodNegative;
+
+			return current_detector_params;
 		}
 
 		public static DetectorParameters PerformTraining(double[][] positive_data, double[][] negative_data, DetectorParameters current_detector_params)
@@ -92,6 +253,7 @@ namespace CaptureBasedLoadDetector
 				UseKernelEstimation = true,
 				Nu = 0.1
 			};
+
 
 			// Learn a support vector machine
 			var svm = teacher.Learn(positive_data);
@@ -149,7 +311,7 @@ namespace CaptureBasedLoadDetector
 			System.Console.WriteLine("Negative Trues: " + trues.ToString() + " Falses: " + falses.ToString() + " (Max log-likelihood: " + current_detector_params.MaxLogLikelihoodNegative.ToString() + ")");
 
 			// We want the threshold to be more on the side of "not loading", as errors during gameplay are worse.
-			current_detector_params.LogLikelihoodThreshold = (current_detector_params.MaxLogLikelihoodNegative + 5.0 * current_detector_params.MinLogLikelihoodPositive) / 6.0;
+			current_detector_params.LogLikelihoodThreshold = (3.5 * current_detector_params.MaxLogLikelihoodNegative + 2.5 * current_detector_params.MinLogLikelihoodPositive) / 6.0;
 			current_detector_params.DetectsPerfectly = current_detector_params.MaxLogLikelihoodNegative < current_detector_params.MinLogLikelihoodPositive;
 			current_detector_params.LogLikelihoodDistance = current_detector_params.MinLogLikelihoodPositive - current_detector_params.MaxLogLikelihoodNegative;
 
@@ -159,7 +321,7 @@ namespace CaptureBasedLoadDetector
 		/// <summary>
 		/// Opens 2 folders (loading / non-loading examples), and automatically trains and tunes the hyperparameters of the SVM detection.
 		/// </summary>
-		public static DetectorParameters OptimizeDetectorFromFolders()
+		public static DetectorParameters OptimizeDetectorFromFolders(ImageCaptureInfo info, string settingsPath)
 		{
 
 			// TODO: determine if accord+svm is fast enough for real-time detection
@@ -175,6 +337,8 @@ namespace CaptureBasedLoadDetector
 			DetectorParameters current_detector_params = new DetectorParameters();
 
 			FolderBrowserDialog fbd = new FolderBrowserDialog();
+			fbd.RootFolder = System.Environment.SpecialFolder.MyComputer;
+			fbd.SelectedPath = settingsPath;
 
 			fbd.Description = "Choose a folder containing image patches captured during LOADING.";
 			if (fbd.ShowDialog() != DialogResult.OK)
@@ -184,6 +348,8 @@ namespace CaptureBasedLoadDetector
 			string positive_path = fbd.SelectedPath;
 
 			fbd = new FolderBrowserDialog();
+			fbd.RootFolder = System.Environment.SpecialFolder.MyComputer;
+			fbd.SelectedPath = settingsPath;
 
 			fbd.Description = "Choose a folder containing image patches captured during regular gameplay.";
 			if (fbd.ShowDialog() != DialogResult.OK)
@@ -196,9 +362,9 @@ namespace CaptureBasedLoadDetector
 
 			// Setup grid search parameters
 
-			int[] patch_sizes_x = { 300 };//{ 10, 20, 25, 50, 100, 300 };
-			int[] patch_sizes_y = { 10 };//{ 10, 20, 25, 50, 100 };
-			int[] number_of_histogram_bins = { 8 };// { 2, 4, 8, 16, 32 };
+			int[] patch_sizes_x = { info.featureSizeX, info.featureSizeX / 2 , info.featureSizeX  / 4, info.featureSizeX  / 8};//{ 10, 20, 25, 50, 100, 300 };
+			int[] patch_sizes_y = { info.featureSizeY, info.featureSizeY / 2, info.featureSizeY / 4, info.featureSizeY / 8 };//{ 10, 20, 25, 50, 100 };
+			int[] number_of_histogram_bins = {4, 8, 16};
 
 			foreach (var patch_size_x in patch_sizes_x)
 			{

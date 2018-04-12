@@ -5,12 +5,14 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 
 namespace CaptureBasedLoadDetector
 {
+	
 	//This class contains settings, features and methods for computing features from a given Bitmap
 	class FeatureDetector
 	{
@@ -197,9 +199,10 @@ namespace CaptureBasedLoadDetector
 			return newBitmap;
 		}
 
-		public static List<double> featuresFromBitmapDouble(Bitmap capture, DetectorParameters detector_params)
+		public static List<double> featuresFromBitmapDouble(Bitmap capture, DetectorParameters detector_params, int additive_noise_range = 0)
 		{
 
+			Random rng = new Random();
 			List<int> features = new List<int>();
 			List<double> finalFeatures = new List<double>();
 
@@ -244,6 +247,17 @@ namespace CaptureBasedLoadDetector
 							b = (int)(data[(x_index * 4) + (yAdd) + 0]);
 							g = (int)(data[(x_index * 4) + (yAdd) + 1]);
 							r = (int)(data[(x_index * 4) + (yAdd) + 2]);
+
+							if(additive_noise_range != 0)
+							{
+								b += rng.Next(-additive_noise_range, +additive_noise_range);
+								g += rng.Next(-additive_noise_range, +additive_noise_range);
+								r += rng.Next(-additive_noise_range, +additive_noise_range);
+
+								b = Math.Max(Math.Min(255, b), 0);
+								g = Math.Max(Math.Min(255, g), 0);
+								r = Math.Max(Math.Min(255, r), 0);
+							}
 
 							patchHistR[(r * detector_params.HistogramNumberOfBins) / 256]++;
 							patchHistG[(g * detector_params.HistogramNumberOfBins) / 256]++;
